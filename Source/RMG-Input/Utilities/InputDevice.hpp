@@ -12,6 +12,7 @@
 
 #include "common.hpp"
 
+#include <QAtomicPointer>
 #include <QObject>
 #include <string>
 #include <SDL.h>
@@ -35,8 +36,8 @@ public:
     bool StartRumble(void);
     bool StopRumble(void);
 
-    // returns whether the device is attached
-    bool IsAttached(void);
+    // returns whether the device is connected
+    bool SetConnected(bool connected, int num);
 
     // returns whether a device has been opened
     bool HasOpenDevice(void);
@@ -50,9 +51,13 @@ public:
     // tries to close opened device
     bool CloseDevice(void);
 
+    // technically not signals so maybe rename?
+    bool on_SDL_DeviceAdded(SDL_GameController* controller, std::string name, std::string path, std::string serial, int number);
+    bool on_SDL_DeviceRemoved(int number);
+
 private:
-    SDL_Joystick*       joystick = nullptr;
-    SDL_GameController* gameController = nullptr;
+    QAtomicPointer<SDL_Joystick> joystick = nullptr;
+    QAtomicPointer<SDL_GameController> gameController = nullptr;
 
     bool hasOpenDevice = false;
     bool isOpeningDevice = false;
@@ -60,6 +65,7 @@ private:
     Thread::SDLThread* sdlThread = nullptr;
 
     SDLDevice desiredDevice;
+    int currentDeviceNum = -1;
     std::vector<SDLDevice> foundDevicesWithNameMatch;
 
 private slots:

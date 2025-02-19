@@ -32,23 +32,23 @@ void InputDevice::SetSDLThread(Thread::SDLThread* sdlThread)
 
 SDL_Joystick* InputDevice::GetJoystickHandle()
 {
-    return this->joystick;
+    return this->joystick.loadAcquire();
 }
 
 SDL_GameController* InputDevice::GetGameControllerHandle()
 {
-    return this->gameController;
+    return this->gameController.loadAcquire();
 }
 
 bool InputDevice::StartRumble(void)
 {
-    if (this->gameController != nullptr)
+    if (this->gameController.loadAcquire() != nullptr)
     {
-        return SDL_GameControllerRumble(this->gameController, 0xFFFF, 0xFFFF, SDL_HAPTIC_INFINITY) == 0;
+        return SDL_GameControllerRumble(this->gameController.loadAcquire(), 0xFFFF, 0xFFFF, SDL_HAPTIC_INFINITY) == 0;
     }
-    else if (this->joystick != nullptr)
+    else if (this->joystick.loadAcquire() != nullptr)
     {
-        return SDL_JoystickRumble(this->joystick, 0xFFFF, 0xFFFF, SDL_HAPTIC_INFINITY) == 0;
+        return SDL_JoystickRumble(this->joystick.loadAcquire(), 0xFFFF, 0xFFFF, SDL_HAPTIC_INFINITY) == 0;
     }
 
     return false;
@@ -56,21 +56,16 @@ bool InputDevice::StartRumble(void)
 
 bool InputDevice::StopRumble(void)
 {
-    if (this->gameController != nullptr)
+    if (this->gameController.loadAcquire() != nullptr)
     {
-        return SDL_GameControllerRumble(this->gameController, 0, 0, 0) == 0;
+        return SDL_GameControllerRumble(this->gameController.loadAcquire(), 0, 0, 0) == 0;
     }
-    else if (this->joystick != nullptr)
+    else if (this->joystick.loadAcquire() != nullptr)
     {
-        return SDL_JoystickRumble(this->joystick, 0, 0, 0) == 0;
+        return SDL_JoystickRumble(this->joystick.loadAcquire(), 0, 0, 0) == 0;
     }
 
     return false;
-}
-
-bool InputDevice::IsAttached(void)
-{
-    return SDL_JoystickGetAttached(this->joystick) == SDL_TRUE;
 }
 
 bool InputDevice::HasOpenDevice()
@@ -101,16 +96,16 @@ bool InputDevice::IsOpeningDevice(void)
 
 bool InputDevice::CloseDevice()
 {
-    if (this->joystick != nullptr)
+    if (this->joystick.loadAcquire() != nullptr)
     {
-        SDL_JoystickClose(this->joystick);
-        this->joystick = nullptr;
+        SDL_JoystickClose(this->joystick.loadAcquire());
+        this->joystick.storeRelease(nullptr);
     }
 
-    if (this->gameController != nullptr)
+    if (this->gameController.loadAcquire() != nullptr)
     {
-        SDL_GameControllerClose(this->gameController);
-        this->gameController = nullptr;
+        SDL_GameControllerClose(this->gameController.loadAcquire());
+        this->gameController.storeRelease(nullptr);
     }
 
     return true;
@@ -182,12 +177,85 @@ void InputDevice::on_SDLThread_DeviceSearchFinished(void)
         }
     }
 
-    this->joystick = SDL_JoystickOpen(device.number);
+
     if (SDL_IsGameController(device.number))
     {
-        this->gameController = SDL_GameControllerOpen(device.number);
+        this->gameController.storeRelease(SDL_GameControllerOpen(device.number));
     }
+    else
+    {
+        this->joystick.storeRelease(SDL_JoystickOpen(device.number));
+    }  
 
     this->isOpeningDevice = false;
     this->hasOpenDevice = this->joystick != nullptr || this->gameController != nullptr;
+}
+
+bool InputDevice::on_SDL_DeviceAdded(SDL_GameController* controller, std::string name, std::string path, std::string serial, int number)
+{
+    if (this->hasOpenDevice || this->isOpeningDevice)
+    {
+        return false;
+    }
+
+    SDLDevice device = {name, path, serial, 0};
+    SDLDevice desiredDevice = this->desiredDevice;
+    desiredDevice.number = 0;
+
+    bool hasDevice = false;
+
+    if (device == desiredDevice)
+    { // use exact match
+        printf("on_SDL_DeviceAdded exact match!\n");
+        this->gameController.storeRelease(controller);
+        // TODO: further validation?
+        this->joystick.storeRelease(nullptr);
+        this->hasOpenDevice = true;
+        this->isOpeningDevice = false;
+        this->currentDeviceNum = number;
+        return true;
+    }
+    else
+    { // no exact match, try to find name + serial match first
+        if (!desiredDevice.serial.empty())
+        { // only try serial match when it's not empty
+            if (device.name == desiredDevice.name &&
+                device.serial == desiredDevice.serial)
+            {
+                hasDevice = true;
+            }
+        }
+
+        if (device.name == desiredDevice.name)
+        { // fallback to name only match
+            hasDevice = true;
+        }
+
+        if (hasDevice)
+        {
+            printf("on_SDL_DeviceAdded partial match\n");
+
+            this->gameController.storeRelease(controller);
+            this->joystick.storeRelease(nullptr);
+            this->hasOpenDevice = true;
+            this->isOpeningDevice = false;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool InputDevice::on_SDL_DeviceRemoved(int number)
+{
+    if (number == this->currentDeviceNum)
+    {
+        this->CloseDevice();
+        this->hasOpenDevice   = false;
+        this->isOpeningDevice = false;
+        printf("device removed from input device!\n");
+        return true;
+    }
+
+    return false;
 }

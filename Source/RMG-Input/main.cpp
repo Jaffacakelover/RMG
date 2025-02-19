@@ -930,6 +930,70 @@ static bool check_hotkeys(int Control)
     return false;
 }
 
+static int sdl_event_watcher(void* userdata, SDL_Event* event)
+{
+    if (event->type != SDL_CONTROLLERDEVICEADDED &&
+        event->type != SDL_CONTROLLERDEVICEREMOVED //||
+        /*event->type != SDL_JOYDEVICEADDED || // TODO: joystick support..
+        event->type != SDL_JOYDEVICEREMOVED*/)
+    {
+        return 0;
+    }
+
+    SDL_GameController* controller;
+    std::string name;
+    std::string path;
+    std::string serial;
+
+    if (event->type == SDL_CONTROLLERDEVICEADDED)
+    {
+        SDL_GameController* controller = SDL_GameControllerOpen(event->cdevice.which);
+        if (controller == nullptr)
+        { // skip invalid controllers
+            printf("failed to open controller uwu\n");
+            return 0;
+        }
+
+        const char* namestr = SDL_GameControllerName(controller);
+        const char* pathstr  = SDL_GameControllerPath(controller);
+        const char* serialstr = SDL_GameControllerGetSerial(controller);
+        if (namestr != nullptr)
+        {
+            name = namestr;
+        }
+        if (pathstr != nullptr)
+        {
+            path = pathstr;
+        }
+        if (serialstr != nullptr)
+        {
+            serial = serialstr;
+        }
+    }
+
+    for (int i = 0; i < NUM_CONTROLLERS; i++)
+    {
+        InputProfile* profile = &l_InputProfiles[i];
+
+        if (event->type == SDL_CONTROLLERDEVICEADDED)
+        {
+            if (profile->InputDevice.on_SDL_DeviceAdded(controller, name, path, serial, event->cdevice.which))
+            {
+                break;
+            }
+        }
+        else if (event->type == SDL_CONTROLLERDEVICEREMOVED)
+        {
+            if (profile->InputDevice.on_SDL_DeviceRemoved(event->cdevice.which))
+            {
+                break;
+            }
+        }
+    }
+
+    return 0;
+}
+
 static void sdl_init()
 {
     std::filesystem::path gameControllerDbPath;
@@ -943,6 +1007,8 @@ static void sdl_init()
             SDL_InitSubSystem(subsystem);
         }
     }
+
+    SDL_AddEventWatch(sdl_event_watcher, nullptr);
 
     gameControllerDbPath = CoreGetSharedDataDirectory();
     gameControllerDbPath += "/gamecontrollerdb.txt";
@@ -1232,29 +1298,6 @@ EXPORT void CALL GetKeys(int Control, BUTTONS* Keys)
     }
 #endif // VRU
 
-    // check if device has been disconnected,
-    // if it has, try to open it again,
-    // only do this every 2 seconds to prevent lag
-    const auto currentTime  = std::chrono::high_resolution_clock::now();
-    const int secondsPassed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - profile->LastDeviceCheckTime).count();
-    if (secondsPassed >= 2)
-    {
-        profile->LastDeviceCheckTime = currentTime;
-
-        if (profile->DeviceNum != (int)InputDeviceType::Keyboard)
-        {
-            if (profile->InputDevice.IsOpeningDevice())
-            {
-                return;
-            }
-
-            if (!profile->InputDevice.HasOpenDevice() || !profile->InputDevice.IsAttached())
-            {
-                profile->InputDevice.OpenDevice(profile->DeviceName, profile->DevicePath, profile->DeviceSerial, profile->DeviceNum);
-            }
-        }
-    }
-
     // when we've matched a hotkey,
     // we don't need to check anything
     // else
@@ -1337,12 +1380,14 @@ EXPORT void CALL ReadController(int Control, unsigned char *Command)
 EXPORT int CALL RomOpen(void)
 {
     l_HotkeysThread->SetState(HotkeysThreadState::RomOpened);
+    l_SDLThread->SetAction(SDLThreadAction::SDLPumpEvents);
     return 1;
 }
 
 EXPORT void CALL RomClosed(void)
 {
     l_HotkeysThread->SetState(HotkeysThreadState::RomClosed);
+    l_SDLThread->SetAction(SDLThreadAction::None);
     l_HasControlInfo = false;
     close_controllers();
 #ifdef VRU
