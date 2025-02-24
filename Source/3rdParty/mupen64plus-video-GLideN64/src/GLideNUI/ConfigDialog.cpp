@@ -10,7 +10,9 @@
 #include <QRegularExpression>
 #include <QInputDialog>
 #include <QDirIterator>
-#include <qnamespace.h>
+#include <QVBoxLayout>
+#include <QScrollBar>
+#include <QScreen>
 
 #include "../Config.h"
 #include "../DebugDump.h"
@@ -484,6 +486,53 @@ void ConfigDialog::_init(bool reInit, bool blockCustomSettings)
 	m_blockReInit = false;
 }
 
+void ConfigDialog::_setSize(void)
+{
+	// this is a hack to set the initial window
+	// size without having the scroll bars from the
+	// scrollArea visible
+	int width = 0;
+	int height = 0;
+
+	// retrieve screen geometry
+	int maxScreenWidth = 0;
+	int maxScreenHeight = 0;
+	if (this->screen() != nullptr) {
+		maxScreenWidth = this->screen()->availableGeometry().width();
+		maxScreenHeight = this->screen()->availableGeometry().height();
+	}
+
+	// retrieve layout margins
+	int layoutWidthMargin = 0;
+	int layoutHeightMargin = 0;
+	ui->verticalLayout_3->getContentsMargins(&layoutWidthMargin, &layoutHeightMargin, nullptr, nullptr);
+
+	// we'll use the tab with the biggest width
+	// as a base, then add the scrollbar width
+	// and the margin padding
+	width = ui->texturesTab->width();
+	width += ui->scrollArea->verticalScrollBar()->width();
+	width += layoutWidthMargin;
+
+	// we'll use the tab with the biggest height
+	// as a base, then add the scrollbar height,
+	// profiles frame height, buttonbox height
+	// and then the margin padding
+	height = ui->tabWidget->height();
+	height += ui->scrollArea->horizontalScrollBar()->height();
+	height += ui->profilesFrame->height();
+	height += ui->buttonBox->height();
+	height += (layoutHeightMargin * 2);
+
+	// account for screen geometry
+	if (maxScreenWidth > 0 && maxScreenHeight > 0) {
+		width = std::min(width, maxScreenWidth);
+		height = std::min(height, maxScreenHeight);
+	}
+
+	this->resize(width, height);
+}
+
 void ConfigDialog::_getTranslations(QStringList & _translationFiles) const
 {
 	QDir pluginFolder(m_strSharedIniPath);
@@ -549,6 +598,7 @@ m_maxAnisotropy(_maxAnisotropy)
 {
 	ui->setupUi(this);
 	_init();
+	_setSize();
 }
 
 ConfigDialog::~ConfigDialog()

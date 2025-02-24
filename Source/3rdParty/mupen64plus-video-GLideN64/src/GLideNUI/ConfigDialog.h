@@ -99,6 +99,7 @@ private slots:
 
 private:
 	void _init(bool reInit = false, bool blockCustomSettings = false);
+	void _setSize(void);
 	void _getTranslations(QStringList & _translationFiles) const;
 	void _switchDest(bool isGame);
 	QString _hotkeyDescription(quint32 _idx) const;
