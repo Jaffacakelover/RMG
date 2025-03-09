@@ -16,6 +16,8 @@ sha256sums=('SKIP')
 prepare()
 {
     mkdir -p "$srcdir/$pkgname/build"
+    sed -i 's|#include <unzip.h>|#include <linux/limits.h>\n#include <unzip.h>|g' \
+        "$srcdir/$pkgname/Source/RMG-Core/Archive.cpp"
 }
 
 build()
